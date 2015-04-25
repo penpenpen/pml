@@ -1,0 +1,104 @@
+Practical Machine Learning project
+========================================================
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+### Loading the data
+
+```{r}
+
+library(caret)
+library(ggplot2)
+library(randomForest) # I'm using the package directly as it is much faster than throught caret
+
+setwd("/Users/krochek/Copy/Coursera/Practical Machine Learning/project")
+pmltraining <- read.csv("./pml-training.csv")
+pmltesting <- read.csv("./pml-testing.csv")
+```
+## Now, lets clean the data a bit:
+
+The following code makes sure there are no predictors that have very low variance due to missing values mostly. I must admit that the test data given (20 cases) - helped to better understand which are the ones not needed as well - Given the fact that if a variable is empty or NA in all 20 rows - it can't add any information for prediction, therefore it's not significant for the prediction model.
+
+By using nearZeroVar on the 20 testing rows - you can easily "cheat" and get rid of all the columns the same way as written above. The logic behind it is if it has constant values in the test set for all the 20 rows - it means they have no or very very little influence on the classification.
+
+The drops list includes all the colnames that I took off as well based on general logic: 
+ * X - is just an index
+ * user_name - shouldn't have any effect
+ * The 3 stimetamp variables - these all represent the time at the moment of the                                                excercise and is only there to help with the windows which are relative to one another
+ * new window - by the testing data - adds no information to the model (all values the same)
+ * problem_id - same as X.
+ 
+```{r}
+numnas <- sapply(pmltesting,function(x) sum(is.na(x)))
+numnas <- data.frame(numnas)
+isnas <- ifelse(numnas$numnas>4,row(numnas),NA)
+isnas <- isnas[!is.na(isnas)]
+trainingtemp <- pmltraining[,-isnas]
+testingtemp <- pmltesting[,-isnas]
+drops <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window","problem_id")
+
+
+trainingtemp <- trainingtemp[,!names(trainingtemp) %in% drops]
+testingtemp <- testingtemp[,!names(testingtemp) %in% drops]
+
+# 
+```
+
+## partitioning the data
+
+ I've partitioned the processed pmltraining data into 3/4 training and 1/4 testing for the cross validation - to understand the out of sample error rate and see that the model doesn't overfitt. 
+ 
+```{r}
+inTrain <- createDataPartition(y=trainingtemp$classe, p =0.75, list = FALSE)
+training <- trainingtemp[inTrain,]
+testing <- trainingtemp[-inTrain,]
+
+```
+
+## Fitting the model
+
+I've tried a few models that had little to no succes (a regression tree got me  55% accurace which seemed too low for me). Eventually I've struck gold with random forest and ran it directly from the randomForest package - the implementation must be a lot more efficient as it takes a fraction of the time it would running through caret's train function.
+
+```{r}
+set.seed(1234) # for reproducible research
+rfmodFit100 <- randomForest(training$classe ~., data = training[,-54], ntree = 100)
+
+predict20 <- predict(rfmodFit100,testingtemp)
+print(predict20)
+
+#The following function helps write the prediction results into 20 seperate txt file for the submition of the answers
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predict20)
+
+
+```
+### Cross validation and out of sample error expectation
+
+From the confusion Matrix presented below, It's easy to see that the accuracy is very very high - Which scared me at first when I did it on the training data as I thought i had a clear case of overfitting but after running it on the cross validation data (1/4 of the pml training data), it seems that the accurace is above 99.5%. It's actually is closer to 99.7%.
+
+My expectation for the out of sample error- theoretically it should be around 0.3% 
+
+### Actual out of sample error:
+
+We only had 20 out of samples to work with - **I got all of them right 20/20**.
+so the empirical error is zero.
+
+clarification - If i had a 1000 out of sample entries, I would have expected to see 0.3% errors - meaning 3 errors more or less.
+
+### Some Plots
+
+You can see the error is already very low with only 50 trees but I took 100 to be on the very very safe side :)
+
+
+```{r fig.width=7, fig.height=6}
+plot(rfmodFit100)
+confusionMatrix(testing$classe,predict(rfmodFit100,testing[,-54]))
+```
